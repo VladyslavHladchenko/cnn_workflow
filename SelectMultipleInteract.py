@@ -27,7 +27,7 @@ class SelectMultipleInteract(widgets.HBox):
 
     def _observed_function(self, widg):
         self.selected_list.clear()
-        for sl in widg.get_interact_value():
+        for sl in self.selector.get_interact_value():
             idx = self.options.index(sl)
             self.selected_list.append(self.all_data_folders[idx])
 
