@@ -2,6 +2,7 @@ submission.tar.gz
 runs
 wandb
 nohup*
+wandb_config.json
 template.zip
 __pycache__
 gpu-status.py

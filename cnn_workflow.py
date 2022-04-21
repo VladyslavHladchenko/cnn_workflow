@@ -6,9 +6,6 @@ from datetime import datetime
 import pprint
 
 import torch
-import networks
-import torchvision
-import torchvision.transforms as transforms
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -16,42 +13,18 @@ import torch.optim as optim
 from utils import dotdict, load_pickle
 from collections import OrderedDict
 import pickle
+import json
 
 from tqdm.autonotebook import tqdm
 
-# this is a command line program which can be run with different options
-import argparse
+from easydict import EasyDict as edict
 
-parser = argparse.ArgumentParser()
-parser.add_argument("-b","--batch_size", type=int, default=32, help="batch size")
-parser.add_argument("--optimizer", type=str, default="SGD", help="optimizer")
-parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
-parser.add_argument("-m", "--momentum", type=float, default=0.9, help="momentum")
-parser.add_argument("--epochs", type=int, default=1, help="training epochs")
+try:
+    import wandb
+except ModuleNotFoundError:
+    wandb = False
 
-
-class Data():
-    def __init__(self, args=None):
-        args = dotdict() if args == None else args
-
-        # transforms
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
-
-        val_fraction = args.get('val_fraction',0.1)
-        batch_size = args.get('batch_size',64)
-
-        train_set = torchvision.datasets.MNIST('../data', download=True, train=True, transform=transform)
-        self.test_set = torchvision.datasets.MNIST('../data', download=True, train=False, transform=transform)
-
-        # split original train set into train and validation
-        val_size = int(val_fraction*len(train_set))
-        train_size = len(train_set) - val_size
-        self.train_set, self.val_set = torch.utils.data.random_split(train_set, [train_size, val_size])
-
-        # dataloaders
-        self.train_loader = torch.utils.data.DataLoader(self.train_set, batch_size=batch_size, shuffle=True, num_workers=0)
-        self.val_loader = torch.utils.data.DataLoader(self.val_set, batch_size=val_size, num_workers=0)
-        self.test_loader = torch.utils.data.DataLoader(self.test_set, batch_size=len(self.test_set), shuffle=True, num_workers=0)
+from args import parser
 
 
 def new_network(args):
@@ -92,19 +65,24 @@ def get_acc(preds, labels):
     return preds.argmax(dim=1).eq(labels).sum().item()/len(labels)
 
 
-def createDirs(do_it):
-    if not do_it:
-        return None,None
+def createDirs(start_time, **kwargs):
+    args = edict(kwargs)
 
-    d = datetime.today().strftime('%Y-%m-%dT%H_%M_%S')
-    models = f'runs/{d}/models'
-    results = f'runs/{d}/results'
-    os.makedirs(models)
-    os.makedirs(results)
+    if not args.save_epochs:
+        return None,None,None
+
+    d = start_time.strftime('%Y-%m-%d %H_%M_%S')
+    subdir = f"{d} {args.model_name} e={args.epoch_num} lr={args.lr}"
+    models_dir = f'runs/{subdir}/models'
+    results_dir = f'runs/{subdir}/results'
+    os.makedirs(models_dir)
+    os.makedirs(results_dir)
+
     print("Created dirs: ")
-    print(models)
-    print(results)
-    return models, results
+    print("\t" + models_dir)
+    print("\t" + results_dir)
+
+    return subdir, models_dir, results_dir
 
 
 def saveResults(do_it, results, model, dirs, epoch=None):
@@ -117,7 +95,7 @@ def saveResults(do_it, results, model, dirs, epoch=None):
     if not do_it:
         return
 
-    models_dir, results_dir = dirs
+    subdir, models_dir, results_dir = dirs
 
     # save results of all epochs
     with open(f'{results_dir}/results.pickle', 'wb') as handle:
@@ -141,12 +119,18 @@ def saveResults(do_it, results, model, dirs, epoch=None):
     save_network(model, f'{models_dir}/{net_name}.pt')
 
 
-def saveParams(do_it, dirs, model, opt):
-    if not do_it:
+def saveParams(start_time, dirs, model, opt, **kwargs):
+    args = edict(kwargs)
+
+    if not args.save_epochs:
         return
-    models_dir, results_dir = dirs
+
+    subdir, models_dir, results_dir = dirs
     
     d = dotdict()
+    d.start_time = start_time.strftime('%Y-%m-%d %H:%M:%S')
+    d.data_dir = subdir
+    d.epoch_num = args.epoch_num
     d.model_class = model.__class__
     d.model_name = model.__class__.__name__
     d.opt_class = opt.__class__
@@ -157,6 +141,7 @@ def saveParams(do_it, dirs, model, opt):
 
     with open(f'{models_dir}/params.txt', 'w') as handle:
         handle.write(pprint.pformat(d))
+
 
 def load_models_and_params(data_folders,device):
     model_titles = []
@@ -175,7 +160,7 @@ def load_models_and_params(data_folders,device):
         model = load_network(model_params, model_filename)
         models.append(model)
 
-        model_titles.append(f"{model_params.model_name} lr={model_params.opt_lr}")
+        model_titles.append(f"{model_params.model_name} {model_params.epochs} lr={model_params.opt_lr}")
 
     return models, results, model_titles
 
@@ -247,10 +232,24 @@ def train_single_epoch(args, model, device, data_loader, opt, epoch):
 
     return results
 
+def log_to_wandb(do_it, epoch, result):
+    if not do_it:
+        return 
+    wandb.log({"training loss": result.trn_loss
+              ,"validation loss": result.val_loss},
+              step=epoch,
+              commit=False)
+    wandb.log({"training accuracy": result.trn_acc,
+               "validation accuracy": result.val_acc},
+               step=epoch)
 
-def train(model, device, epoch_num, data_loader, opt, save_each_epoch=True):
-    dirs = createDirs(save_each_epoch)
-    saveParams(save_each_epoch, dirs, model, opt)
+
+def train(model, device, data_loader, opt, **kwargs):
+    args = edict(kwargs)
+
+    start_time=datetime.today()
+    dirs = createDirs(start_time,  **kwargs) # TODO pass some args 
+    saveParams(start_time, dirs, model, opt, **kwargs)
 
     train_args = dotdict()
     train_args.disable_tqdm = True
@@ -261,23 +260,26 @@ def train(model, device, epoch_num, data_loader, opt, save_each_epoch=True):
     results.trn_acc = OrderedDict()
     results.val_acc = OrderedDict()
 
-    for epoch in tqdm(range(1, epoch_num+1), desc="epochs progress"):
+    t=tqdm(range(1, args.epoch_num+1), disable=kwargs.get('disable_tqdm', False))
+    for epoch in t:
         out = train_single_epoch(train_args, model, device, data_loader, opt, epoch)
         results.trn_loss[epoch] = out.trn_loss
         results.val_loss[epoch] = out.val_loss
         results.trn_acc[epoch] = out.trn_acc
         results.val_acc[epoch] = out.val_acc
+        s= f"tl {out.trn_loss:.4f} vl {out.val_loss:.4f} ta {out.trn_acc:.4f} va {out.val_acc:.4f}" if kwargs.get('do_log',True) else None
 
-        saveResults(save_each_epoch, results, model, dirs, epoch)
+        t.set_postfix(result=s) #TODO: get rif of 'result' key
 
-    saveResults(save_each_epoch, results, model, dirs)
+        log_to_wandb(args.wandb, epoch, out)
+
+        saveResults(args.save_epochs, results, model, dirs, epoch)
+
+    saveResults(args.save_epochs, results, model, dirs)
 
     return results
 
 def range_test(lb, ub, device, data_loader, model, opt_type=optim.SGD):
-    train_args = dotdict()
-    train_args.log_interval = 600
-
     num = len(data_loader.train_loader)
 
     results = OrderedDict()
@@ -307,6 +309,7 @@ def range_test(lb, ub, device, data_loader, model, opt_type=optim.SGD):
 def test(model, device, test_loader):
     l, acc = evaluate(model, test_loader, device)
     print(f"loss {l:.4f}, accuracy {acc}")
+    return l, acc
 
 
 def get_predictions_sorted_by_confidence(model, device, test_loader):
@@ -331,22 +334,13 @@ def get_predictions_sorted_by_confidence(model, device, test_loader):
     return pred[sord_idx].cpu().numpy(), confidence[sord_idx].cpu().numpy(), target[sord_idx].cpu().numpy()
 
 
-
-
-if __name__ == "__main__":
+def get_args():
     args = parser.parse_args()
-    # query if we have GPU
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    print('Using device:', device)
+    args.wandb = args.wandb and wandb != None
+    return args
 
-    data_args = dotdict()
-    data_args.batch_size = 64
-    data_args.val_fraction = 0.1
-    data_loader = Data(data_args)
+def init_wandb(**kwargs):
+    with open("wandb_config.json", "r") as f:
+        wandb_config = json.load(f)
 
-    model = networks.Net().to(device)
-    opt = optim.Adadelta(model.parameters(), lr=1)
-    epoch_num=30
-    results = train(model, device, epoch_num, data_loader, opt, save_each_epoch=True)
-
-    test(model, device, data_loader.test_loader)
+    wandb.init(**wandb_config,config=kwargs)

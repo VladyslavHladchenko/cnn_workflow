@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 from sklearn.manifold import TSNE
-import pickle 
+import pickle
+import os
 
 def load_pickle(filename):
     with open(filename,'rb') as f:
@@ -178,13 +179,23 @@ def plot_tsne(features, labels, title=""):
 def get_model_desc(data_folder):
     model_params_filename = f'runs/{data_folder}/models/params.pickle'
     model_params = load_pickle(model_params_filename)
-    model_desc = data_folder
-    T_idx = data_folder.find('T')
-    for _ in range(2):
-        idx=model_desc.find('_',T_idx)
-        model_desc = model_desc[:idx] + ":" + model_desc[idx+1:]
-    model_desc = model_desc[:T_idx] + " " + model_desc[T_idx+1:]
 
-    return f"{model_desc} {model_params.model_name} lr={model_params.opt_lr}"
+    return f"{model_params.start_time} {model_params.model_name} {model_params.epochs} lr={model_params.opt_lr}"
 
 
+def print_pid():
+    print(f'[PID {os.getpid()}]')
+
+
+def load_model(model_name, device):
+    import networks
+    model_class = getattr(networks, model_name)
+    model = model_class().to(device)
+    print('info:')
+    return model
+
+def get_optimizer(opt_name, *opt_args, **opt_kwargs):
+    opt_class = getattr(torch.optim, opt_name)
+    opt = opt_class(*opt_args, **opt_kwargs)
+
+    return opt
