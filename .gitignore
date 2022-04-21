@@ -1,5 +1,7 @@
 submission.tar.gz
 runs
+wandb
+nohup*
 template.zip
 __pycache__
 gpu-status.py
