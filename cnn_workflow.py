@@ -250,8 +250,8 @@ def train(model, device, data_loader, opt, **kwargs):
     args.lr = args.get('lr', opt.param_groups[0]['lr'])
 
     start_time=datetime.today()
-    dirs = createDirs(start_time, model_name = model.__class__.__name__, **kwargs)
-    saveParams(start_time, dirs, model, opt, **kwargs)
+    dirs = createDirs(start_time, model_name = model.__class__.__name__, **args)
+    saveParams(start_time, dirs, model, opt, **args)
 
     train_args = dotdict()
     train_args.disable_tqdm = True
@@ -262,14 +262,14 @@ def train(model, device, data_loader, opt, **kwargs):
     results.trn_acc = OrderedDict()
     results.val_acc = OrderedDict()
 
-    t=tqdm(range(1, args.epoch_num + 1), disable=kwargs.get('disable_tqdm', False))
+    t=tqdm(range(1, args.epoch_num + 1), disable=args.get('disable_tqdm', False))
     for epoch in t:
         out = train_single_epoch(train_args, model, device, data_loader, opt, epoch)
         results.trn_loss[epoch] = out.trn_loss
         results.val_loss[epoch] = out.val_loss
         results.trn_acc[epoch] = out.trn_acc
         results.val_acc[epoch] = out.val_acc
-        s= f"tl {out.trn_loss:.4f} vl {out.val_loss:.4f} ta {out.trn_acc:.4f} va {out.val_acc:.4f}" if kwargs.get('do_log',True) else None
+        s= f"tl {out.trn_loss:.4f} vl {out.val_loss:.4f} ta {out.trn_acc:.4f} va {out.val_acc:.4f}" if args.get('do_log',True) else None
 
         t.set_postfix(result=s) #TODO: get rif of 'result' key
 
