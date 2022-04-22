@@ -1,5 +1,6 @@
 from cProfile import label
 from tkinter import font
+from unittest import result
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
@@ -92,6 +93,21 @@ def display_results(results, title_postfix=""):
     display_results_accuracy(results, title_postfix)
 
 
+def display_compare(results, name, title, legend):
+    data=[]
+    plt.figure()
+    for r in results:
+        attr = getattr(r, name)
+        data.append(attr)
+
+    plot_dict_data(title, 'epochs', name, legend, data)
+
+
+def display_results_compare(results, titles):
+    display_compare(results, 'val_acc', 'validation accuracy comparison', titles)
+    display_compare(results, 'val_loss', 'validation loss comparison', titles)
+    display_compare(results, 'trn_acc', 'training accuracy comparison', titles)
+    display_compare(results, 'trn_loss', 'training loss comparison', titles)
 
 def get_confusion(model,device, data_loader, n_classes):
     confusion = np.zeros((n_classes,n_classes), dtype=np.uint64)
