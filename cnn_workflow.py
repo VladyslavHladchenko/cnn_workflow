@@ -246,9 +246,11 @@ def log_to_wandb(do_it, epoch, result):
 
 def train(model, device, data_loader, opt, **kwargs):
     args = edict(kwargs)
+    args.wandb = args.get('wandb', False)
+    args.lr = args.get('lr', opt.param_groups[0]['lr'])
 
     start_time=datetime.today()
-    dirs = createDirs(start_time,  **kwargs) # TODO pass some args 
+    dirs = createDirs(start_time, model_name = model.__class__.__name__, **kwargs)
     saveParams(start_time, dirs, model, opt, **kwargs)
 
     train_args = dotdict()
@@ -260,7 +262,7 @@ def train(model, device, data_loader, opt, **kwargs):
     results.trn_acc = OrderedDict()
     results.val_acc = OrderedDict()
 
-    t=tqdm(range(1, args.epoch_num+1), disable=kwargs.get('disable_tqdm', False))
+    t=tqdm(range(1, args.epoch_num + 1), disable=kwargs.get('disable_tqdm', False))
     for epoch in t:
         out = train_single_epoch(train_args, model, device, data_loader, opt, epoch)
         results.trn_loss[epoch] = out.trn_loss
