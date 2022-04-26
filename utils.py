@@ -1,12 +1,10 @@
-from cProfile import label
-from tkinter import font
-from unittest import result
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
 from sklearn.manifold import TSNE
 import pickle
 import os
+from os.path import isdir, join
 
 def load_pickle(filename):
     with open(filename,'rb') as f:
@@ -47,6 +45,7 @@ def plot_dict_data(title, xlabel, ylabel,legend, data):
         data_x = list(d.keys())
         data_y = list(d.values())
         # plt.xticks(data_x[:-1:16] + [data_x[-1]])
+        plt.xticks(data_x)
         plt.plot(data_x, data_y)
     plt.legend(legend)
 
@@ -93,21 +92,44 @@ def display_results(results, title_postfix=""):
     display_results_accuracy(results, title_postfix)
 
 
-def display_compare(results, name, title, legend):
+def display_compare(results, paramname, yaxis, legend):
     data=[]
     plt.figure()
     for r in results:
-        attr = getattr(r, name)
+        attr = getattr(r, paramname)
         data.append(attr)
 
-    plot_dict_data(title, 'epochs', name, legend, data)
+    plot_dict_data(yaxis + ' comparison', 'epoch', yaxis, legend, data)
+
+def display_compare_test(results, paramname, yaxis, legend):
+    data=[]
+    plt.figure()
+    for r in results:
+        attr = getattr(r, paramname, None)
+        attr and data.append(attr)
+
+    if not data:
+        return
+
+    fig, ax = plt.subplots()
+    ax.set_title(yaxis + ' comparison')
+    ax.set_ylabel(yaxis)
+    ax.set_xlabel('networks')
+    bars = ax.bar(legend, data)
+    ax.bar_label(bars)
+    plt.grid()
+
 
 
 def display_results_compare(results, titles):
-    display_compare(results, 'val_acc', 'validation accuracy comparison', titles)
-    display_compare(results, 'val_loss', 'validation loss comparison', titles)
-    display_compare(results, 'trn_acc', 'training accuracy comparison', titles)
-    display_compare(results, 'trn_loss', 'training loss comparison', titles)
+    display_compare(results, 'val_acc', 'validation accuracy', titles)
+    display_compare(results, 'val_loss', 'validation loss', titles)
+    display_compare(results, 'trn_acc', 'training accuracy', titles)
+    display_compare(results, 'trn_loss', 'training loss', titles)
+
+    # display_compare_test(results, 'tst_acc', 'test accuracy', titles)
+    # display_compare_test(results, 'tst_loss', 'test loss', titles)
+
 
 def get_confusion(model,device, data_loader, n_classes):
     confusion = np.zeros((n_classes,n_classes), dtype=np.uint64)
@@ -192,13 +214,6 @@ def plot_tsne(features, labels, title=""):
     plt.title(f'features : {title}')
 
 
-def get_model_desc(data_folder):
-    model_params_filename = f'runs/{data_folder}/models/params.pickle'
-    model_params = load_pickle(model_params_filename)
-
-    return f"{model_params.start_time} {model_params.model_name} {model_params.epochs} lr={model_params.opt_lr}"
-
-
 def print_pid():
     print(f'[PID {os.getpid()}]')
 
@@ -207,7 +222,7 @@ def load_model(model_name, device):
     import networks
     model_class = getattr(networks, model_name)
     model = model_class().to(device)
-    print('info:')
+    # print('info:')
     return model
 
 def get_optimizer(opt_name, *opt_args, **opt_kwargs):
@@ -215,3 +230,66 @@ def get_optimizer(opt_name, *opt_args, **opt_kwargs):
     opt = opt_class(*opt_args, **opt_kwargs)
 
     return opt
+
+
+def add_note(model, note):
+    model_note = getattr(model,'note','')
+    model.note = model_note + (model_note != '')*' ' + note
+
+def get_model_note(model):
+    return getattr(model,'note','')
+
+def get_model_name(model):
+    return model.__class__.__name__
+
+def get_model_desc(model):
+    return f"{model.model_name} {model.model_note}"
+
+def get_model_desc_from_file(data_folder):
+    model_params = load_params_subdir(data_folder)
+    return f"{model_params.model_name} {model_params.model_note}"
+
+def get_model_desc(model):
+    return f"{get_model_name(model)} {get_model_note(model)}"
+
+def get_model_desc_fw_time(data_folder):
+    model_params_filename = f'{data_folder}/params.pickle'
+    model_params = load_pickle(model_params_filename)
+
+    return f"{model_params.start_time} {model_params.model_name}"
+
+
+def get_subdirs():
+    dir = 'runs'
+    all_data_folders = [ join(dir, f) for f in os.listdir(dir) if isdir(join(dir, f))]
+    return all_data_folders
+
+
+def filter_subdirs(filters):
+    filters = filters if isinstance(filters, list) else [filters]
+
+    all_data_folders = get_subdirs()
+    filtered_folders = [df for df in all_data_folders if  all([f in df for f in filters])]
+
+    return filtered_folders
+
+def load_results_filter(filters):
+    return load_results_subdirs(filter_subdirs(filters))
+
+def load_results_subdirs(subdirs):
+    if not isinstance(subdirs, list):
+        return load_results_subdir(subdirs)
+
+    return [load_results_subdir(sd)  for sd in subdirs]
+
+def load_results_subdir(subdir):
+    return load_pickle(subdir+'/results.pickle')
+
+def load_params_subdirs(subdirs):
+    if not isinstance(subdirs, list):
+        return load_params_subdir(subdirs)
+
+    return [load_params_subdir(sd)  for sd in subdirs]
+
+def load_params_subdir(subdir):
+    return load_pickle(subdir+'/params.pickle')

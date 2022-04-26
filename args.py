@@ -11,6 +11,7 @@ parser.add_argument("--epoch_num", "-e" , type=int, default=1, help="training ep
 parser.add_argument("--wandb", action='store_true', help="log to wandb")
 parser.add_argument("--model_name", type=str, default='Net', help="model class name")
 parser.add_argument("--save_epochs", action='store_true', help="save each epoch")
+parser.add_argument("--loss_fn",  type=str, help="loss funciton")
 
 
 def print_args(args):

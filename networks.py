@@ -37,7 +37,6 @@ class Net(nn.Module):
         x = self.features(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
-        x = F.log_softmax(x, dim=1)
         return x
 
 
@@ -89,5 +88,4 @@ class Net2(nn.Module):
         x = self.features(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
-        x = F.log_softmax(x, dim=1)
         return x

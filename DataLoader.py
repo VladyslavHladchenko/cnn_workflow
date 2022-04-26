@@ -23,3 +23,12 @@ class DataLoader():
         self.train_loader = torch.utils.data.DataLoader(self.train_set, batch_size=batch_size, shuffle=True, num_workers=0)
         self.val_loader = torch.utils.data.DataLoader(self.val_set, batch_size=val_size, num_workers=0)
         self.test_loader = torch.utils.data.DataLoader(self.test_set, batch_size=len(self.test_set), shuffle=True, num_workers=0)
+
+
+    def __init__(self, train_loader, val_loader):
+         self.val_loader = val_loader
+         self.train_loader = train_loader
+
+         self.train_set = train_loader.dataset
+
+        # self.test_set = torchvision.datasets.('../data', download=True, train=False)

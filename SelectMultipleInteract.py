@@ -1,20 +1,19 @@
 import ipywidgets as widgets
 import os 
-from os.path import isdir, join 
+from os.path import isdir, join
 from utils import get_model_desc
 class SelectMultipleInteract(widgets.HBox):
 
-    def __init__(self, selected_list):
+    def __init__(self, selected_list, dir='runs'):
 
-        dir = 'runs'
-        self.all_data_folders = [ f for f in os.listdir(dir) if (join(dir, f))]
+        self.all_data_folders = [ join(dir, f) for f in os.listdir(dir) if isdir(join(dir, f))]
         self.options = list(map(get_model_desc, self.all_data_folders))
 
         self.selector = widgets.SelectMultiple(
             options=self.options,
             value=self.options,
             description='Models',
-            disabled=False,
+            disabled=False
         )
         self.selected_list=selected_list
 

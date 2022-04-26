@@ -4,13 +4,13 @@ import numpy as np
 import os
 from datetime import datetime
 import pprint
-
+from Results import Results, Result
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from utils import dotdict, load_pickle
+from utils import dotdict, get_model_desc, load_pickle, get_model_name, get_model_note
 from collections import OrderedDict
 import pickle
 import json
@@ -22,7 +22,7 @@ from easydict import EasyDict as edict
 try:
     import wandb
 except ModuleNotFoundError:
-    wandb = False
+    wandb = None
 
 from args import parser
 
@@ -32,33 +32,9 @@ def new_network(args):
     net.to(args.device)
     return net
 
-def save_network(net:nn.Module, filename):
-    torch.save({'model_state_dict': net.state_dict()}, filename)
-
-def load_network(args, filename):
-    state = torch.load(open(filename, "rb") , map_location=args.device)
-    net = new_network(args)
-    net.load_state_dict(state['model_state_dict'])
-    return net
-
-
-def evaluate(model: nn.Module, loader, device):
-    ## perform evaluation of the network on the data given by the loader
-    model.eval()
-
-    loss = 0
-    acc = 0
-    with torch.no_grad():
-        for data, target in loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            loss += F.nll_loss(output, target, reduction='sum')
-            acc += get_acc(output, target)
-
-    loss /= len(loader.dataset)
-    acc /= len(loader)
-
-    return loss, acc
+def save_model(model:nn.Module, dir, epoch):
+    filename = f'{dir}/models/{get_model_name(model)}_{epoch}.pt'
+    torch.save({'model_state_dict': model.state_dict(), 'note':get_model_note(model)}, filename)
 
 
 def get_acc(preds, labels):
@@ -67,105 +43,90 @@ def get_acc(preds, labels):
 
 def createDirs(start_time, **kwargs):
     args = edict(kwargs)
+    args.basedir=args.get('basedir','runs')
 
     if not args.save_epochs:
         return None,None,None
 
-    d = start_time.strftime('%Y-%m-%d %H_%M_%S')
-    subdir = f"{d} {args.model_name} e={args.epoch_num} lr={args.lr}"
-    models_dir = f'runs/{subdir}/models'
-    results_dir = f'runs/{subdir}/results'
+    d = start_time.strftime('%Y_%m_%d %H_%M_%S')
+    dir = f"{args.basedir}/{d} {args.model_desc} e={args.epoch_num} lr={args.lr}"
+    models_dir = f'{dir}/models'
     os.makedirs(models_dir)
-    os.makedirs(results_dir)
 
-    print("Created dirs: ")
-    print("\t" + models_dir)
-    print("\t" + results_dir)
+    print(f"Created dir: {dir}")
 
-    return subdir, models_dir, results_dir
+    return f'{dir}'
 
 
-def saveResults(do_it, results, model, dirs, epoch=None):
+def saveResults(results, dir):
     """
 
     if epoch is not None save data for current epoch 
     else save all results 
 
     """
-    if not do_it:
-        return
 
-    subdir, models_dir, results_dir = dirs
+    with open(f'{dir}/results.pickle', 'wb') as handle:
+        pickle.dump(results, handle)
 
-    # save results of all epochs
-    with open(f'{results_dir}/results.pickle', 'wb') as handle:
-            pickle.dump(results, handle)
-
-    if epoch == None:
-        return
-
-    # save results of current epoch
-    result_last_epoch = dotdict()
-    result_last_epoch.trn_loss = results.trn_loss[epoch]
-    result_last_epoch.trn_acc = results.trn_acc[epoch]
-    result_last_epoch.val_loss = results.val_loss[epoch]
-    result_last_epoch.val_acc = results.val_acc[epoch]
-
-    with open(f'{results_dir}/results_{epoch}.pickle', 'wb') as handle:
-        pickle.dump(result_last_epoch, handle)
-
-    net_name = model.__class__.__name__
-    save_network(model, f'{models_dir}/{net_name}_{epoch}.pt')
-    save_network(model, f'{models_dir}/{net_name}.pt')
+    with open(f'{dir}/results.json', 'w') as handle:
+        json.dump(results, handle, indent=4)
 
 
-def saveParams(start_time, dirs, model, opt, **kwargs):
+def saveParams(start_time, dir, model, opt, **kwargs):
     args = edict(kwargs)
 
     if not args.save_epochs:
         return
 
-    subdir, models_dir, results_dir = dirs
-    
     d = dotdict()
     d.start_time = start_time.strftime('%Y-%m-%d %H:%M:%S')
-    d.data_dir = subdir
+    d.data_dir = dir
     d.epoch_num = args.epoch_num
     d.model_class = model.__class__
-    d.model_name = model.__class__.__name__
+    d.model_name = get_model_name(model)
+    d.model_note = get_model_note(model)
     d.opt_class = opt.__class__
     d.opt_lr = opt.param_groups[0]['lr']
 
-    with open(f'{models_dir}/params.pickle', 'wb') as handle:
+    with open(f'{dir}/params.pickle', 'wb') as handle:
         pickle.dump(d, handle)
 
-    with open(f'{models_dir}/params.txt', 'w') as handle:
-        handle.write(pprint.pformat(d))
+    with open(f'{dir}/params.json', 'w') as handle:
+        json.dump({k:str(d[k]) for k in d }, handle, indent=4)
 
 
-def load_models_and_params(data_folders,device):
+def load_state_to_network(device, statefilename, model):
+    state = torch.load(open(statefilename, "rb") , map_location=device)
+    model.load_state_dict(state['model_state_dict'])
+    model.note = state['note']
+
+#TODO: rework
+def __load_models_and_params(data_folders,device, model=None):
     model_titles = []
     models = []
     results = []
 
     for df in data_folders:
-        filename = f'runs/{df}/results/results.pickle'
-        results.append(load_pickle(filename))
+        resultsfilename = f'{df}/results.pickle'
+        results.append(load_pickle(resultsfilename))
 
-        model_params_filename = f'runs/{df}/models/params.pickle'
+        model_params_filename = f'{df}/params.pickle'
         model_params = load_pickle(model_params_filename)
         model_params.device=device
 
-        model_filename = f'runs/{df}/models/{model_params.model_name}.pt'
-        model = load_network(model_params, model_filename)
+        model_state_filename = f'{df}/models/{model_params.model_name}.pt' #TODO: model without epoch is not saved 
+        if not model:
+            model = new_network(model_params)
+        load_state_to_network(device, model_state_filename, model) 
         models.append(model)
 
-        model_titles.append(f"{model_params.model_name} {model_params.epochs} lr={model_params.opt_lr}")
+        model_titles.append(f"{model_params.model_name} {model_params.model_note} {model_params.epochs} lr={model_params.opt_lr}")
 
     return models, results, model_titles
 
 
-def train_single_batch(model, trn_data, val_data, opt, device):
+def train_single_batch(model, trn_data, val_data, opt, device, loss_fn=F.cross_entropy):
     model.train()
 
     trn_x = trn_data[0].to(device)
@@ -176,7 +137,7 @@ def train_single_batch(model, trn_data, val_data, opt, device):
 
     opt.zero_grad()
     output = model(trn_x)
-    trn_loss = F.nll_loss(output, trn_labels, reduction='sum')
+    trn_loss = loss_fn(output, trn_labels, reduction='sum')
     trn_loss.backward()
     opt.step()
 
@@ -186,29 +147,24 @@ def train_single_batch(model, trn_data, val_data, opt, device):
 
     # cumpute accuracy on validation batch
     output = model(val_x)
-    val_loss = F.nll_loss(output, val_labels,reduction='sum')
+    val_loss = loss_fn(output, val_labels, reduction='sum')
     val_acc = get_acc(output, val_labels)
 
-    # write results
-    results = dotdict()
-    results.trn_loss = trn_loss.item()/len(trn_labels)
-    results.val_loss = val_loss.item()/len(val_labels)
-    results.trn_acc = trn_acc
-    results.val_acc = val_acc
+    # write result
+    result = Result(trn_loss = trn_loss.item()/len(trn_labels),
+                     val_loss = val_loss.item()/len(val_labels),
+                     trn_acc = trn_acc,
+                     val_acc = val_acc)
 
-    return results
+    return result
 
 
-def train_single_epoch(args, model, device, data_loader, opt, epoch):
-    n_data = len(data_loader.train_set)
+def train_single_epoch(args, model, device, data_loader, opt, epoch, loss_fn, scheduler=None):
     n_batches = len(data_loader.train_loader)
 
     disable_tqdm = args.get('disable_tqdm', False)
 
-    trn_loss_sum = 0
-    val_loss_sum = 0
-    trn_acc_sum = 0
-    val_acc_sum = 0
+    result = Result()
 
     val_data = next(iter(data_loader.val_loader))
 
@@ -216,25 +172,17 @@ def train_single_epoch(args, model, device, data_loader, opt, epoch):
                                     total=n_batches,
                                     desc=f'epoch {epoch+1}',
                                     disable=disable_tqdm):
-        out = train_single_batch(model, trn_data, val_data, opt, device)
+        out = train_single_batch(model, trn_data, val_data, opt, device, loss_fn)
+        result += out
+    result/= n_batches
 
-        trn_loss_sum += out.trn_loss
-        val_loss_sum += out.val_loss
-        trn_acc_sum += out.trn_acc
-        val_acc_sum += out.val_acc
+    if scheduler:
+        scheduler.step()
+
+    return result
 
 
-    results = dotdict()
-    results.trn_loss = trn_loss_sum/n_batches
-    results.val_loss = val_loss_sum/n_batches
-    results.trn_acc = trn_acc_sum/n_batches
-    results.val_acc = val_acc_sum/n_batches
-
-    return results
-
-def log_to_wandb(do_it, epoch, result):
-    if not do_it:
-        return 
+def log_to_wandb(epoch, result):
     wandb.log({"training loss": result.trn_loss
               ,"validation loss": result.val_loss},
               step=epoch,
@@ -243,44 +191,48 @@ def log_to_wandb(do_it, epoch, result):
                "validation accuracy": result.val_acc},
                step=epoch)
 
+def make_tqdm_postfix(result):
+    s= f"tl {result.trn_loss:.4f} vl {result.val_loss:.4f} ta {result.trn_acc:.4f} va {result.val_acc:.4f}"
+    return s
 
-def train(model, device, data_loader, opt, **kwargs):
+def set_tqdm_postfix(t, result):
+    t.set_postfix_str(make_tqdm_postfix(result))
+
+def _get_train_args(opt, kwargs):
     args = edict(kwargs)
     args.wandb = args.get('wandb', False)
     args.lr = args.get('lr', opt.param_groups[0]['lr'])
+    args.loss_fn = args.get('loss_fn', F.cross_entropy)
+    args.save_epochs = args.get('save_epochs', False)
+    args.disable_tqdm = args.get('disable_tqdm', False)
+    args.scheduler = args.get('scheduler', None)
+    return args
+
+def train(model, device, data_loader, opt, **kwargs):
+    args = _get_train_args(opt, kwargs)
 
     start_time=datetime.today()
-    dirs = createDirs(start_time, model_name = model.__class__.__name__, **args)
-    saveParams(start_time, dirs, model, opt, **args)
+    dir = createDirs(start_time, model_desc = get_model_desc(model), **args)
+    saveParams(start_time, dir, model, opt, **args) # TODO: all like this : args.save_epochs and ?
 
-    train_args = dotdict()
-    train_args.disable_tqdm = True
+    train_args = dotdict({'disable_tqdm': True})
 
-    results = dotdict()
-    results.trn_loss = OrderedDict()
-    results.val_loss = OrderedDict()
-    results.trn_acc = OrderedDict()
-    results.val_acc = OrderedDict()
+    results = Results()
 
-    t=tqdm(range(1, args.epoch_num + 1), disable=args.get('disable_tqdm', False))
+    t=tqdm(range(1, args.epoch_num + 1), disable=args.disable_tqdm)
     for epoch in t:
-        out = train_single_epoch(train_args, model, device, data_loader, opt, epoch)
-        results.trn_loss[epoch] = out.trn_loss
-        results.val_loss[epoch] = out.val_loss
-        results.trn_acc[epoch] = out.trn_acc
-        results.val_acc[epoch] = out.val_acc
-        s= f"tl {out.trn_loss:.4f} vl {out.val_loss:.4f} ta {out.trn_acc:.4f} va {out.val_acc:.4f}" if args.get('do_log',True) else None
+        out = train_single_epoch(train_args, model, device, data_loader, opt, epoch, loss_fn=args.loss_fn, scheduler=args.scheduler)
+        results.save_epoch(epoch, out)
+        set_tqdm_postfix(t, out)
 
-        t.set_postfix(result=s) #TODO: get rif of 'result' key
+        args.wandb and log_to_wandb(epoch, out)
+        args.save_epochs and save_model(model, dir, epoch)
 
-        log_to_wandb(args.wandb, epoch, out)
-
-        saveResults(args.save_epochs, results, model, dirs, epoch)
-
-    saveResults(args.save_epochs, results, model, dirs)
+    args.save_epochs and saveResults(results, dir)
 
     return results
 
+#TODO: refactor
 def range_test(lb, ub, device, data_loader, model, opt_type=optim.SGD):
     num = len(data_loader.train_loader)
 
@@ -308,32 +260,49 @@ def range_test(lb, ub, device, data_loader, model, opt_type=optim.SGD):
     return results
 
 
-def test(model, device, test_loader):
-    l, acc = evaluate(model, test_loader, device)
-    print(f"loss {l:.4f}, accuracy {acc}")
+def test(model, device, test_loader, loss_fun):
+    l, acc = evaluate(model, test_loader, device, loss_fun)
+    print(f"loss {l:.4f}, accuracy {acc:.4f}")
     return l, acc
+
+def evaluate(model: nn.Module, device, loader, loss_fun=F.cross_entropy):
+    ## perform evaluation of the network on the data given by the loader
+    model.eval()
+
+    loss = 0
+    acc = 0
+    with torch.no_grad():
+        for data, target in loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            loss += loss_fun(output, target, reduction='sum').item()
+            acc += get_acc(output, target)
+
+    loss /= len(loader.dataset)
+    acc /= len(loader)
+
+    return loss, acc
 
 
 def get_predictions_sorted_by_confidence(model, device, test_loader):
     model.eval()
-    
-    outputs_list = []
+    probs_list = []
     target_list = []
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
-            outputs_list.append(model(data))
+            output = model(data)
+            probs_list.append(F.softmax(output,dim=1))
             target_list.append(target)
 
-    output = torch.concat(outputs_list)
+    prob = torch.concat(probs_list)
     target = torch.concat(target_list)
-    
-    logsoftmax, pred = torch.max(output,1)
-    confidence = torch.exp(logsoftmax)
+    confidence, pred = torch.max(prob,1)
 
-    sord_idx = torch.argsort(confidence)
+    sort_idx = torch.argsort(confidence)
 
-    return pred[sord_idx].cpu().numpy(), confidence[sord_idx].cpu().numpy(), target[sord_idx].cpu().numpy()
+    return pred[sort_idx].cpu().numpy(), confidence[sort_idx].cpu().numpy(), target[sort_idx].cpu().numpy()
+
 
 
 def get_args():
