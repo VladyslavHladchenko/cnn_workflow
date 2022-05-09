@@ -1,13 +1,14 @@
 import ipywidgets as widgets
 import os 
 from os.path import isdir, join
-from utils import get_model_desc
+from . import filesystem_utils
+
 class SelectMultipleInteract(widgets.HBox):
 
     def __init__(self, selected_list, dir='runs'):
 
         self.all_data_folders = [ join(dir, f) for f in os.listdir(dir) if isdir(join(dir, f))]
-        self.options = list(map(get_model_desc, self.all_data_folders))
+        self.options = list(map(filesystem_utils.get_model_desc_fw_time, self.all_data_folders))
 
         self.selector = widgets.SelectMultiple(
             options=self.options,

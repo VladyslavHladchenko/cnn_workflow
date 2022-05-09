@@ -1,5 +1,10 @@
 import argparse
 
+try:
+    import wandb
+except ModuleNotFoundError:
+    wandb = None
+
 parser = argparse.ArgumentParser()
 parser.add_argument("-b","--batch_size", type=int, default=32, help="training batch size")
 parser.add_argument("--optimizer", "--opt", type=str, default="Adadelta", help="optimizer")
@@ -17,3 +22,7 @@ parser.add_argument("--loss_fn",  type=str, help="loss funciton")
 def print_args(args):
     print('[args: ' + ' '.join(f'{k}={v}' for k, v in vars(args).items())+']')
 
+def get_args():
+    args = parser.parse_args()
+    args.wandb = args.wandb and wandb != None
+    return args

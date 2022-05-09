@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from utils import dotdict
+from . import dotdict
 from dataclasses import dataclass
 
 class Results(dotdict):
