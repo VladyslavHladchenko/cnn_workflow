@@ -7,7 +7,7 @@ def get_free_device():
 
     if torch.cuda.is_available():
         free_gpu_ids= get_free_gpus()
-        print(f'free GPUs: {free_gpu_ids}')
+        print(f'free GPUs: {" ".join(free_gpu_ids)}')
 
         if free_gpu_ids:
             device = torch.device(f'cuda:{free_gpu_ids[-1]}')
