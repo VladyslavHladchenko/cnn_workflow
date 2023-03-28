@@ -159,7 +159,7 @@ def evaluate(model: nn.Module, device, loader, loss_fun=F.cross_entropy):
             data, target = data.to(device), target.to(device)
             output = model(data)
             loss += loss_fun(output, target, reduction='sum').item()
-            acc += get_acc(output, target)
+            acc += get_acc(output, target)  
 
     loss /= len(loader.dataset)
     acc /= len(loader)
