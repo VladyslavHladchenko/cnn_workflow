@@ -43,13 +43,13 @@ def train_single_batch(model, trn_data, val_data, opt, device, loss_fn=F.cross_e
     opt.step()
 
     model.eval()
-    # cumpute accuracy on training batch
-    trn_acc = get_acc(output, trn_labels)
+    # compute accuracy on training batch
+    trn_acc = get_acc(output, trn_labels) if not kwargs.get('no_acc', False) else 0
 
-    # cumpute accuracy on validation batch
+    # compute accuracy on validation batch
     output = model(val_x)
     val_loss = loss_fn(output, val_labels, reduction='sum')
-    val_acc = get_acc(output, val_labels)
+    val_acc = get_acc(output, val_labels) if not kwargs.get('no_acc', False) else 0
 
     # write result
     result = Result(trn_loss = trn_loss.item()/len(trn_labels),
@@ -90,6 +90,7 @@ def _get_train_args(opt, kwargs):
     args.scheduler = args.get('scheduler', None)
     args.pre_step = args.get('pre_step', None)
     args.pre_step_sigma = args.get('pre_step_sigma', None)
+    args.no_acc = args.get('no_acc', False)
     return args
 
 def train(model, device, data_loader, opt, **kwargs):
@@ -105,7 +106,7 @@ def train(model, device, data_loader, opt, **kwargs):
 
     t=tqdm(range(1, args.epoch_num + 1), disable=args.disable_tqdm)
     for epoch in t:
-        out = train_single_epoch(train_args, model, device, data_loader, opt, epoch, loss_fn=args.loss_fn, pre_step=args.pre_step, pre_step_sigma=args.pre_step_sigma)
+        out = train_single_epoch(train_args, model, device, data_loader, opt, epoch, loss_fn=args.loss_fn, pre_step=args.pre_step, pre_step_sigma=args.pre_step_sigma, no_acc = args.no_acc)
         results.save_epoch(epoch, out)
         set_tqdm_postfix(t, out)
 

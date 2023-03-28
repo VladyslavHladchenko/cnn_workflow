@@ -4,7 +4,7 @@ from . import dataprocessing, Result
 import numpy as np
 
 
-def plot_dict_data(title, xlabel, ylabel,legend, data):
+def plot_dict_data(title, xlabel, ylabel, legend, data):
     plt.grid()
     plt.title(title)
     plt.xlabel(xlabel)
@@ -57,6 +57,16 @@ def display_results_compare(results, titles):
 
     # display_compare_test(results, 'tst_acc', titles)
     # display_compare_test(results, 'tst_loss', titles)
+
+
+def display_results_compare_one_loss(result):
+    data=[]
+    plt.figure()
+    for paramname in ['trn_loss', 'val_loss']:
+        attr = getattr(result, paramname)
+        data.append(attr)
+
+    plot_dict_data('loss comparison', 'epoch', 'loss', ['training loss', 'validation loss'], data)
 
 
 def plot_tsne(features, labels, title=""):
